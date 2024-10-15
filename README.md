@@ -1,1 +1,1 @@
-Hi this a preety good and most importantly working scheduling bot.
+Hi this a pretty good and most importantly working scheduling bot.
