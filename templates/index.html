@@ -8,19 +8,19 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f8f9fa; /* Light grey background */
-            color: #343a40; /* Dark grey text */
+            background-color: #f8f9fa;
+            color: #343a40;
             margin: 0;
             padding: 20px;
         }
 
         h2 {
-            color: #495057; /* Medium grey for headings */
+            color: #495057;
             margin-bottom: 10px;
         }
 
         form {
-            background-color: #e9ecef; /* Slightly darker grey for form */
+            background-color: #e9ecef;
             padding: 20px;
             border-radius: 5px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
@@ -39,19 +39,19 @@
             width: 100%;
             padding: 10px;
             margin-bottom: 15px;
-            border: 1px solid #ced4da; /* Light border */
+            border: 1px solid #ced4da;
             border-radius: 5px;
         }
 
         input[type="submit"] {
-            background-color: #343a40; /* Dark grey for submit button */
-            color: #ffffff; /* White text */
+            background-color: #343a40;
+            color: #ffffff;
             border: none;
             cursor: pointer;
         }
 
         input[type="submit"]:hover {
-            background-color: #495057; /* Medium grey on hover */
+            background-color: #495057;
         }
 
         table {
@@ -61,27 +61,27 @@
         }
 
         th, td {
-            border: 1px solid #ced4da; /* Light border for table */
+            border: 1px solid #ced4da;
             padding: 10px;
             text-align: left;
         }
 
         th {
-            background-color: #e2e6ea; /* Slightly darker grey for header */
+            background-color: #e2e6ea;
         }
 
         tr:nth-child(even) {
-            background-color: #f2f2f2; /* Alternate row color */
+            background-color: #f2f2f2;
         }
 
         img {
-            max-width: 100px; /* Set a maximum width for images */
-            max-height: 100px; /* Set a maximum height for images */
-            object-fit: cover; /* Maintain aspect ratio */
+            max-width: 100px;
+            max-height: 100px;
+            object-fit: cover;
         }
 
         .delete-btn {
-            background-color: #dc3545; /* Bootstrap danger color */
+            background-color: #dc3545;
             color: white;
             border: none;
             padding: 5px 10px;
@@ -90,21 +90,21 @@
         }
 
         .delete-btn:hover {
-            background-color: #c82333; /* Darker shade on hover */
+            background-color: #c82333;
         }
 
         .refresh-btn {
-            background-color: #007bff; /* Bootstrap primary color */
+            background-color: #007bff;
             color: white;
             border: none;
             padding: 10px 15px;
             cursor: pointer;
             border-radius: 5px;
-            margin-bottom: 10px; /* Space between button and table */
+            margin-bottom: 10px;
         }
 
         .refresh-btn:hover {
-            background-color: #0056b3; /* Darker shade on hover */
+            background-color: #0056b3;
         }
     </style>
 </head>
@@ -140,19 +140,18 @@
             </tr>
         </thead>
         <tbody id="message-table-body">
-            {% for message in scheduled_messages|reverse %}  <!-- Reverse order here -->
+            {% for message in scheduled_messages|reverse %}
                 <tr id="message-{{ message._id }}">
                     <td>
-                        <img src="https://api.telegram.org/file/bot{{ config.BOT_TOKEN }}/{{ message.image_file_id }}" alt="Scheduled Image">
+                        <img src="/image/{{ message.image_file_id }}" alt="Scheduled Image">
                     </td>
                     <td>{{ message.caption }}</td>
                     <td>
-                        {% set scheduled_time = message.time.astimezone(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M') %}  <!-- Convert time to IST -->
-                        {{ scheduled_time }} (IST)
+                        {{ message.scheduled_time_str }} (IST)
                     </td>
                     <td>
                         {% if message.status == "pending" %}
-                            <span class="time-left" data-scheduled-time="{{ message.time.astimezone(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%dT%H:%M:%S') }}+05:30">Calculating...</span>
+                            <span class="time-left" data-scheduled-time="{{ message.scheduled_time_str_iso }}">Calculating...</span>
                         {% else %}
                             Sent
                         {% endif %}
@@ -168,7 +167,6 @@
     <!-- Flatpickr JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script>
-        // Initialize Flatpickr with time and date options
         flatpickr("#datetime", {
             enableTime: true,
             dateFormat: "Y-m-d H:i",
@@ -176,61 +174,46 @@
             defaultDate: new Date(),
         });
 
-        // Function to delete a message
         function deleteMessage(messageId) {
             if (confirm('Are you sure you want to delete this message?')) {
-                fetch(`/delete/${messageId}`, { method: 'DELETE' })
+                fetch(`/delete/${messageId}`, { method: 'POST' })
                     .then(response => {
                         if (response.ok) {
-                            // Remove the message row from the table
-                            const messageRow = document.getElementById(`message-${messageId}`);
-                            messageRow.remove();
+                            document.getElementById(`message-${messageId}`).remove();
                             alert('Message deleted successfully.');
                         } else {
-                            alert('Failed to delete the message. Please try again.');
+                            alert('Failed to delete the message.');
                         }
                     })
                     .catch(error => {
-                        console.error('Error deleting message:', error);
-                        alert('An error occurred. Please try again.');
+                        console.error('Error:', error);
                     });
             }
         }
 
-        // Function to refresh the page
         function refreshPage() {
             location.reload();
         }
 
-        // Update time remaining calculation for each scheduled message
         document.querySelectorAll('.time-left').forEach(span => {
-            const scheduledTime = span.getAttribute('data-scheduled-time'); // Fetch the scheduled time
-            const istDate = new Date(scheduledTime); // Convert to a valid date object
+            const scheduledTime = new Date(span.getAttribute('data-scheduled-time'));
             const currentTime = new Date();
 
             function updateCountdown() {
-                const currentTime = new Date();
-                const timeLeftInSeconds = Math.floor((istDate - currentTime) / 1000);
+                const timeLeftInSeconds = Math.floor((scheduledTime - new Date()) / 1000);
 
-                if (timeLeftInSeconds > 0) { // If time is still left
-                    if (timeLeftInSeconds > 300) { // More than 5 minutes left
-                        const hours = Math.floor(timeLeftInSeconds / 3600);
-                        const minutes = Math.floor((timeLeftInSeconds % 3600) / 60);
-                        const seconds = timeLeftInSeconds % 60;
-                        span.textContent = `${hours} hours, ${minutes} minutes, ${seconds} seconds`;
-                    } else { // Less than or equal to 5 minutes
-                        const minutes = Math.floor(timeLeftInSeconds / 60);
-                        const seconds = timeLeftInSeconds % 60;
-                        span.textContent = `${minutes} minutes, ${seconds} seconds`;
-                    }
+                if (timeLeftInSeconds > 0) {
+                    const hours = Math.floor(timeLeftInSeconds / 3600);
+                    const minutes = Math.floor((timeLeftInSeconds % 3600) / 60);
+                    const seconds = timeLeftInSeconds % 60;
+                    span.textContent = `${hours} hours, ${minutes} minutes, ${seconds} seconds`;
                 } else {
                     span.textContent = "Time's up!";
-                    clearInterval(countdownInterval);
                 }
             }
 
-            updateCountdown(); // Initial call to set the countdown
-            const countdownInterval = setInterval(updateCountdown, 300000); // Update every 5 minutes
+            updateCountdown();
+            setInterval(updateCountdown, 1000);
         });
     </script>
 </body>
