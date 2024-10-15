@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, redirect, url_for
+from flask import Flask, request, render_template, redirect, url_for, send_file
 import requests
 from pymongo import MongoClient
 from pytz import timezone
@@ -26,7 +26,7 @@ fs = GridFS(db)
 # Timezone configuration for India
 IST = timezone('Asia/Kolkata')
 
-# Route for scheduling images via a web form
+# Route for displaying scheduled messages and the form
 @app.route('/')
 def index():
     # Retrieve all scheduled messages to display in the table
@@ -39,8 +39,12 @@ def index():
         if message['time'].tzinfo is None:
             message['time'] = IST.localize(message['time'])
 
+        # Add a formatted time for display in the template
+        message['scheduled_time_str'] = message['time'].astimezone(IST).strftime('%Y-%m-%d %H:%M')
+
     return render_template('index.html', scheduled_messages=scheduled_messages, current_time=current_time)
 
+# Route to handle scheduling messages
 @app.route('/schedule', methods=['POST'])
 def schedule():
     try:
@@ -73,7 +77,8 @@ def schedule():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
-@app.route('/delete/<message_id>', methods=['DELETE'])
+# Route to delete a message (Changed method to POST for better browser compatibility)
+@app.route('/delete/<message_id>', methods=['POST'])
 def delete_message(message_id):
     try:
         # Find the message by ID and delete it
@@ -86,15 +91,15 @@ def delete_message(message_id):
         print(f"Error deleting message: {e}")
         return '', 500  # Internal server error
 
+# Route to retrieve and serve an image from GridFS
 @app.route('/image/<file_id>')
 def get_image(file_id):
     try:
         # Retrieve the image from GridFS
-        image_file = fs.get(file_id)
+        image_file = fs.get(ObjectId(file_id))
         return send_file(image_file, mimetype=image_file.content_type)
     except Exception as e:
         return "Error: Image not found.", 404
-
 
 # Function to send scheduled messages
 def send_scheduled_images():
