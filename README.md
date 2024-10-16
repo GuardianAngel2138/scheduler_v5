@@ -1,57 +1,35 @@
-# 🌈 Telegram Scheduling Bot
+# Telegram Movie Recommendation Bot
 
-Welcome to the **Telegram Scheduling Bot**! This bot allows you to schedule messages and images to be sent at a specified time in Telegram, making your life easier and more organized.
+## Overview
 
-## 📦 Features
+This Telegram bot provides movie recommendations, specifically targeting Indian movies and popular films from around the world. The bot fetches movie data from The Movie Database (TMDb) and allows users to receive updates about new releases and trending movies.
 
-- **Schedule Messages**: Easily schedule text messages or images to be sent at your desired time.
-- **User-Friendly Interface**: Simple web interface with easy navigation.
-- **Time Zone Support**: Automatically handle time zones for accurate scheduling.
-- **Delete Scheduled Messages**: Remove any scheduled messages easily.
-- **Refresh Functionality**: Refresh the view to see the latest updates.
+## Features
 
-## 🚀 Getting Started
+- **Movie Recommendations from India**: Sends random Indian movies with a rating above 55%.
+- **International Movie Recommendations**: Sends random movies from any country with a rating above 60%.
+- **New Movie Updates**: Sends updates about upcoming movies.
+- **Interactive Buttons**: Each movie post includes a button to learn more about the movie.
+- **User Interaction**: Users are acknowledged when they interact with the bot.
 
-### Prerequisites
+## Technologies Used
+
+- **Python**: The main programming language for the bot.
+- **Flask**: Used for creating a web interface to display the latest posted movies.
+- **python-telegram-bot**: Library for interacting with the Telegram Bot API.
+- **Requests**: For making HTTP requests to the TMDb API.
+- **PyMongo**: For MongoDB integration to store user and movie data.
+
+## Requirements
 
 Make sure you have the following installed:
 
 - Python 3.x
-- Flask
-- MongoDB
-- Python packages: `python-telegram-bot`, `pytz`, `Flask-PyMongo`, `flatpickr`
+- MongoDB (or access to MongoDB Atlas)
 
-### Installation
+### Install Dependencies
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/telegram-scheduling-bot.git
-   cd telegram-scheduling-bot
+To install the required packages, run:
 
-
-📜 Usage
-Schedule an Image: Use the form to select a date and time, upload an image, and provide a caption.
-View Scheduled Messages: Check your scheduled messages with countdown timers.
-Delete Messages: Remove any scheduled message you no longer need.
-🛠️ Technologies Used
-Flask: For the web framework.
-MongoDB: For data storage.
-Python-telegram-bot: To interact with Telegram's Bot API.
-Flatpickr: For a beautiful date and time picker.
-🎯 Contribution
-Contributions are welcome! Feel free to open an issue or submit a pull request.
-
-📞 Contact
-For any inquiries, you can reach me at awesomedudu in telegram
-
-
-### Notes:
-- Replace `https://github.com/yourusername/telegram-scheduling-bot.git` with the actual URL of your GitHub repository.
-- Update `your.email@example.com` with your actual email for contact purposes.
-- The screenshot URL is a placeholder. You can replace it with an actual screenshot of your app.
-- Feel free to customize any sections to better suit your project!
-
-Let me know if you need further modifications or additional sections!
-
-
-
+```bash
+pip install -r requirements.txt
