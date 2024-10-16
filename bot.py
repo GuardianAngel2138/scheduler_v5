@@ -1,147 +1,162 @@
-from flask import Flask, request, render_template, redirect, url_for, send_file
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+from threading import Thread
+from flask import Flask, render_template
+import asyncio
+import logging
+import random
+import re
 import requests
-from pymongo import MongoClient
-from pytz import timezone
-import config
-from datetime import datetime
-import time
-import threading
-from gridfs import GridFS
-import os
-from bson import ObjectId
+import pymongo
+from config import BOT_TOKEN, GROUP_ID, MONGO_URI, TMDB_API_KEY, CHECK_INTERVAL, RANDOM_DELAY_IN, RANDOM_DELAY_ANY, RANDOM_DELAY_NEW
 
+# Initialize Flask app
 app = Flask(__name__)
 
-# Configure upload folder
-UPLOAD_FOLDER = 'uploads/'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+# MongoDB setup
+client = pymongo.MongoClient(MONGO_URI)
+db = client['movie_bot']
+collection = db['posted_movies']
+users_collection = db['users']  # Collection for storing user information
 
-# Initialize MongoDB and GridFS
-client = MongoClient(config.MONGODB_URI)
-db = client.telegram_bot
-collection = db.scheduled_messages
-fs = GridFS(db)
+# Telegram bot setup using Application
+application = Application.builder().token(BOT_TOKEN).build()
 
-# Timezone configuration for India
-IST = timezone('Asia/Kolkata')
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Route for displaying scheduled messages and the form
 @app.route('/')
 def index():
-    # Retrieve all scheduled messages to display in the table
-    scheduled_messages = list(collection.find())
-    current_time = datetime.now(IST)  # Timezone-aware current time
+    last_posted = collection.find().sort('posted_at', -1).limit(5)
+    last_movies = list(last_posted) if collection.estimated_document_count() > 0 else []
+    return render_template('index.html', last_movies=last_movies)
 
-    # Ensure all message times are timezone-aware
-    for message in scheduled_messages:
-        if message['time'].tzinfo is None:
-            message['time'] = IST.localize(message['time'])
+def escape_markdown_v2(text):
+    return re.sub(r'([_\*\[\]\(\)~`>#+\-=|{}\.!])', r'\\\1', text)
 
-        # Format the time in IST for display in the template
-        message['scheduled_time_str'] = message['time'].strftime('%Y-%m-%d %H:%M')
+def get_tmdb_updates(endpoint, params=None):
+    logging.info(f"Fetching movies from TMDb: {endpoint}")
+    try:
+        url = f"https://api.themoviedb.org/3/{endpoint}?api_key={TMDB_API_KEY}&language=en-US"
+        if params:
+            url += '&' + '&'.join([f"{k}={v}" for k, v in params.items()])
+        response = requests.get(url)
+        return response.json()
+    except Exception as e:
+        logging.error(f"Error fetching from TMDb: {e}")
+        return {}
 
-        # Calculate the time left for display
-        time_left = (message['time'] - current_time).total_seconds()
-        if time_left > 0:
-            hours, remainder = divmod(time_left, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            message['time_left_str'] = f"{int(hours)} hours, {int(minutes)} minutes, {int(seconds)} seconds"
+def get_movie_details(movie_id):
+    return get_tmdb_updates(f"movie/{movie_id}", params={'append_to_response': 'credits,watch/providers'})
+
+def format_movie_details(movie):
+    title = movie['title']
+    tmdb_url = f"https://www.themoviedb.org/movie/{movie['id']}"
+    rating = movie.get('vote_average', 'N/A')
+    country = movie.get('production_countries', [{}])[0].get('name', 'N/A')
+    actors = ', '.join([actor['name'] for actor in movie.get('credits', {}).get('cast', [])[:3]]) or 'N/A'
+    watch_providers = movie.get('watch/providers', {}).get('results', {}).get('US', {}).get('flatrate', [])
+    where_to_view = '@' + ', @'.join([provider['provider_name'] for provider in watch_providers]) if watch_providers else 'N/A'
+
+    return {
+        'title': title,
+        'tmdb_url': tmdb_url,
+        'rating': rating,
+        'country': country,
+        'actors': actors,
+        'where_to_view': where_to_view,
+        'poster_url': f"https://image.tmdb.org/t/p/w500{movie['poster_path']}" if movie.get('poster_path') else None
+    }
+
+def store_user(user_id, username):
+    if not users_collection.find_one({'user_id': user_id}):
+        users_collection.insert_one({'user_id': user_id, 'username': username})
+        logging.info(f"Stored new user: {user_id} - {username}")
+    else:
+        logging.info(f"User {user_id} already exists.")
+
+async def button_click(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+
+    # Retrieve user info when they click the button
+    user_id = query.from_user.id
+    username = query.from_user.username or query.from_user.first_name
+
+    # Store user info in MongoDB
+    store_user(user_id, username)
+
+    # Optionally, send a message to acknowledge button click
+    await query.edit_message_text(text=f"Thanks for interacting, {username}! You can check more details in the upcoming movies.")
+
+async def post_movie_to_telegram(movie_details):
+    title = escape_markdown_v2(movie_details['title'])
+    tmdb_url = escape_markdown_v2(movie_details['tmdb_url'])
+    rating = escape_markdown_v2(str(movie_details['rating']))
+    actors = escape_markdown_v2(movie_details['actors'])
+    country = escape_markdown_v2(movie_details['country'])
+    where_to_view = escape_markdown_v2(movie_details['where_to_view'])
+
+    message = (
+        f"*[{title}]({tmdb_url})*\n"
+        f"*Rating:* *{rating}*\n"
+        f"*Actors:* *{actors}*\n"
+        f"*Country of Origin:* *{country}*\n"
+        f"*Watch on:* @{where_to_view}"
+    )
+
+    keyboard = [[InlineKeyboardButton("Know More", callback_data="movie_info")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    try:
+        poster = requests.get(movie_details['poster_url']).content if movie_details['poster_url'] else None
+        if poster:
+            await application.bot.send_photo(chat_id=GROUP_ID, photo=poster, caption=message, parse_mode='MarkdownV2', reply_markup=reply_markup)
         else:
-            message['time_left_str'] = "Time's up!"
-
-    return render_template('index.html', scheduled_messages=scheduled_messages, current_time=current_time)
-
-# Route to handle scheduling messages
-@app.route('/schedule', methods=['POST'])
-def schedule():
-    try:
-        datetime_str = request.form.get('datetime')
-        caption = request.form.get('caption')
-        image_file = request.files.get('image_file')
-
-        if not datetime_str or not caption or not image_file:
-            return "Error: Missing data. Please make sure all fields are filled out correctly.", 400
-
-        file_id = fs.put(image_file.read(), filename=image_file.filename)
-
-        schedule_time = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
-        schedule_time = IST.localize(schedule_time)
-
-        collection.insert_one({
-            "chat_id": config.CHAT_ID,
-            "image_file_id": file_id,
-            "caption": caption,
-            "time": schedule_time,
-            "status": "pending"
-        })
-
-        return redirect(url_for('index'))
+            await application.bot.send_message(chat_id=GROUP_ID, text=message, parse_mode='MarkdownV2', disable_web_page_preview=True, reply_markup=reply_markup)
     except Exception as e:
-        return f"Error: {str(e)}", 500
+        logging.error(f"Error posting {title} to Telegram: {e}")
 
-# Route to delete a message (Method updated to POST)
-@app.route('/delete/<message_id>', methods=['POST'])
-def delete_message(message_id):
-    try:
-        result = collection.delete_one({"_id": ObjectId(message_id)})
-        if result.deleted_count > 0:
-            return '', 200
-        else:
-            return '', 404
-    except Exception as e:
-        return '', 500
+async def send_random_movie_from_india():
+    data = get_tmdb_updates('discover/movie', params={'region': 'IN', 'vote_average.gte': 5.5, 'sort_by': 'popularity.desc'})
+    if data.get('results', []):
+        for _ in range(2):
+            random_movie = random.choice(data['results'])
+            await post_movie_to_telegram(format_movie_details(get_movie_details(random_movie['id'])))
+            await asyncio.sleep(random.uniform(*RANDOM_DELAY_IN))  # Add random delay
 
-# Route to retrieve and serve an image from GridFS
-@app.route('/image/<file_id>')
-def get_image(file_id):
-    try:
-        image_file = fs.get(ObjectId(file_id))
-        return send_file(image_file, mimetype=image_file.content_type)
-    except Exception as e:
-        return "Error: Image not found.", 404
+async def send_random_movie_any_country():
+    data = get_tmdb_updates('discover/movie', params={'vote_average.gte': 6.0, 'sort_by': 'popularity.desc'})
+    if data.get('results', []):
+        for _ in range(2):
+            random_movie = random.choice(data['results'])
+            await post_movie_to_telegram(format_movie_details(get_movie_details(random_movie['id'])))
+            await asyncio.sleep(random.uniform(*RANDOM_DELAY_ANY))  # Add random delay
 
-# Function to send scheduled messages
-def send_scheduled_images():
-    current_time = datetime.now(IST)
-    scheduled_images = collection.find({"time": {"$lte": current_time}, "status": "pending"})
+async def send_new_movie_updates():
+    data = get_tmdb_updates('movie/upcoming')
+    if data.get('results', []):
+        for _ in range(2):
+            random_movie = random.choice(data['results'])
+            await post_movie_to_telegram(format_movie_details(get_movie_details(random_movie['id'])))
+            await asyncio.sleep(random.uniform(*RANDOM_DELAY_NEW))  # Add random delay
 
-    for image in scheduled_images:
-        group_id = image['chat_id']
-        file_id = image['image_file_id']
-        caption = f"*{image['caption']}*"
-
-        collection.update_one({"_id": image["_id"]}, {"$set": {"status": "in-progress"}})
-
-        try:
-            image_file = fs.get(file_id)
-
-            url = f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendPhoto"
-            files = {'photo': image_file}
-            response = requests.post(url, data={"chat_id": group_id, "caption": caption, "parse_mode": "Markdown"}, files=files)
-
-            if response.status_code == 200:
-                confirmation_text = f"Message sent successfully to {group_id}."
-                confirmation_url = f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage"
-                requests.post(confirmation_url, data={"chat_id": config.OWNER_CHAT_ID, "text": confirmation_text})
-
-                collection.update_one({"_id": image["_id"]}, {"$set": {"status": "sent"}})
-            else:
-                error_text = f"Failed to send message to {group_id}. Error: {response.text}"
-                requests.post(f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
-                              data={"chat_id": config.OWNER_CHAT_ID, "text": error_text})
-        except Exception as e:
-            print(f"Error sending message: {e}")
-
-# Background task to check for and send scheduled images periodically
-def scheduled_task():
+async def check_and_post_updates():
     while True:
-        send_scheduled_images()
-        time.sleep(60)
+        await send_random_movie_from_india()
+        await send_random_movie_any_country()
+        await send_new_movie_updates()
+        await asyncio.sleep(CHECK_INTERVAL)
 
-def start_background_tasks():
-    threading.Thread(target=scheduled_task, daemon=True).start()
+def start_async_tasks():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(check_and_post_updates())
+
+# Add button click handler
+application.add_handler(CallbackQueryHandler(button_click))
 
 if __name__ == "__main__":
-    start_background_tasks()
-    app.run(debug=True)
+    Thread(target=start_async_tasks).start()
+    application.run_polling()
+    app.run(debug=True, use_reloader=False)
