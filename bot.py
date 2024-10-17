@@ -1,5 +1,5 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler
 from threading import Thread
 from flask import Flask, render_template
 import asyncio
@@ -149,9 +149,7 @@ async def check_and_post_updates():
         await asyncio.sleep(CHECK_INTERVAL)
 
 def start_async_tasks():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(check_and_post_updates())
+    asyncio.run(check_and_post_updates())
 
 # Add button click handler
 application.add_handler(CallbackQueryHandler(button_click))
@@ -159,4 +157,4 @@ application.add_handler(CallbackQueryHandler(button_click))
 if __name__ == "__main__":
     Thread(target=start_async_tasks).start()
     application.run_polling()
-    app.run(debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
