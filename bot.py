@@ -1,4 +1,4 @@
-import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler
 from threading import Thread
 from flask import Flask, render_template
@@ -154,7 +154,10 @@ def start_async_tasks():
 # Add button click handler
 application.add_handler(CallbackQueryHandler(button_click))
 
-if __name__ == "__main__":
-    Thread(target=start_async_tasks).start()
+def run_telegram_bot():
     application.run_polling()
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+
+if __name__ == "__main__":
+    Thread(target=start_async_tasks, daemon=True).start()  # Run async tasks in a separate thread
+    Thread(target=run_telegram_bot, daemon=True).start()   # Run Telegram bot in a separate thread
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)  # Start Flask server
